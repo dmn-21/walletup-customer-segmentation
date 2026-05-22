@@ -1,0 +1,731 @@
+---
+title: "Bank Customer Segmentation Analysis"
+author: "Daniel Nikolov"
+format:
+  html:
+    theme: cosmo
+    toc: true
+    code-fold: true
+execute:
+  warning: false
+  message: false
+---
+
+# **Project: Bank Customer Segmentation Analysis**
+
+\-\--
+
+## 1. Introduction
+
+Customer segmentation is an important analytical approach used by financial institutions to better understand customer behavior and improve decision-making processes. By dividing customers into distinct groups based on shared characteristics, companies can develop more personalized services, optimize marketing strategies, and improve customer satisfaction.
+
+In the rapidly growing fintech industry, understanding customer financial activity and digital behavior has become increasingly important. Modern banking institutions collect large amounts of demographic, financial, and behavioral data that can be analyzed to identify meaningful customer patterns.
+
+The purpose of this project is to apply clustering techniques to the WalletUpCRM dataset in order to identify well-defined customer segments. The analysis focuses on variables related to income, spending behavior, investment activity, online banking usage, and digital engagement.
+
+Exploratory Data Analysis (EDA), feature scaling, and K-Means clustering methods are used throughout the project. Different clustering configurations are evaluated using the Elbow Method and Silhouette Analysis to determine the optimal number of customer groups.
+
+The final results aim to provide business insights that may support WalletUp in developing targeted marketing campaigns and promoting its new digital fintech services to the most suitable customer segments.
+
+```{r}
+library(tidyverse)
+library(cluster)
+library(NbClust)
+```
+
+```{r}
+library(factoextra)
+```
+
+```{r}
+data <- read.csv("WalletUpCRM.csv")
+```
+
+\-\--
+
+## **2. Data Exploration**
+
+The data exploration stage was performed to better understand the structure, quality, and characteristics of the WalletUpCRM dataset before applying clustering techniques.
+
+During this phase, the dataset was inspected using summary statistics, dimensional analysis, and visualization methods. The analysis included checking the number of observations and variables, reviewing data types, identifying missing values, and examining feature distributions.
+
+Several visualizations such as histograms, density plots, and feature distribution graphs were used to analyze customer demographic, financial, and digital behavior patterns. Variables including income, credit card spending, mortgage volume, online banking activity, investment behavior, and application usage were explored in detail.
+
+The exploratory analysis revealed noticeable differences in customer financial activity and digital engagement, indicating the presence of potentially distinct customer groups suitable for clustering analysis.
+
+In addition, feature scaling and preprocessing techniques were applied to ensure that all variables contributed equally during the clustering process and to improve the overall model performance.
+
+```{r}
+sample_n(data, 5)
+```
+
+#### Total number of data count
+
+```{r}
+cat("Total number of data count:", nrow(data))
+```
+
+#### Shape of the data
+
+```{r}
+cat("Shape of data:", dim(data))
+```
+
+#### Details of Data Columns and Types
+
+```{r}
+str(data)
+```
+
+#### The number of unique values in specific columns
+
+```{r}
+sapply(data, n_distinct)
+```
+
+#### Descriptive Statistics of Dataset
+
+```{r}
+summary(data)
+```
+
+The summary statistics provide an overview of the customer dataset and reveal significant variation in demographic, financial, and digital banking behavior variables.
+
+The dataset contains customers with ages ranging from 18 to 74 years, while household sizes vary between 1 and 8 members. Income levels show substantial diversity, indicating the presence of both lower-income and high-income customer groups.
+
+Financial variables such as mortgage volume, credit card spending, stock investments, and online banking activity also demonstrate wide distributions, suggesting different levels of financial engagement and investment behavior among customers.
+
+Additionally, digital activity indicators including app logins, internet traffic volume, and time spent in online banking reveal varying levels of fintech adoption and online service usage.
+
+Overall, the summary statistics confirm that the dataset contains heterogeneous customer profiles, making it suitable for customer segmentation and clustering analysis.
+
+#### Null Value Counts per column
+
+```{r}
+colSums(is.na(data))
+```
+
+#### Percentage of Missing Values per Column
+
+```{r}
+null_percentage <- colMeans(is.na(data)) * 100
+
+print(null_percentage)
+```
+
+\-\--
+
+## 3. Data Cleaning
+
+#### Removing Missing Values
+
+```{r}
+data_clean <- na.omit(data)
+```
+
+#### Number of Duplicated Rows in the Dataset
+
+```{r}
+num_duplicated <- sum(duplicated(data_clean))
+
+cat("Number of Duplicated Rows:", num_duplicated)
+```
+
+#### Shape of Cleaned Dataset
+
+```{r}
+num_rows <- nrow(data_clean)
+num_columns <- ncol(data_clean)
+
+cat("Shape of Cleaned Dataset:", num_rows, "rows and", num_columns, "columns")
+```
+
+#### Renaming the Cleaned Dataset
+
+```{r}
+data <- data_clean
+```
+
+#### List of Column Names
+
+```{r}
+colnames(data)
+```
+
+```{r}
+head(data, 3)
+```
+
+\-\--
+
+## **4. Data Visualisation**
+
+#### Distribution of Household Size
+
+```{r}
+HouseholdCount <- table(data$HouseholdSize)
+
+ggplot(data,
+       aes(y = factor(HouseholdSize))) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Total Count per Household Size Category",
+    y = "Household Size",
+    x = "Total Count"
+  )
+```
+
+The visualization shows that most customers belong to households with 2 or 3 members, while larger households are significantly less common. This indicates that the customer base is primarily composed of small and medium-sized households, which may influence spending behavior and digital banking usage patterns.
+
+#### Density Plots for Numerical Variables
+
+```{r}
+selected_cols <- c(
+  "Age",
+  "Income",
+  "MortageVolume",
+  "CreditCardSpending",
+  "StockVolume",
+  "InternetTrafficVolume"
+)
+
+data_long <- data %>%
+  select(all_of(selected_cols)) %>%
+  pivot_longer(cols = everything(),
+               names_to = "Variable",
+               values_to = "Value")
+
+ggplot(data_long,
+       aes(x = Value)) +
+  geom_density(fill = "steelblue",
+               alpha = 0.6) +
+  facet_wrap(~Variable,
+             scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Density Plots for Numerical Variables",
+    x = "Value",
+    y = "Density"
+  )
+```
+
+The density plots show that the selected numerical variables have diverse and non-uniform distributions. Variables such as income, mortgage volume, and stock investments display multiple peaks, indicating the existence of different customer groups with distinct financial behaviors. This supports the suitability of clustering techniques for customer segmentation.
+
+#### Average Credit Card Spending by Household Size
+
+```{r}
+avg_spending <- data %>%
+  group_by(HouseholdSize) %>%
+  summarise(
+    AvgSpending = mean(CreditCardSpending)
+  )
+
+ggplot(avg_spending,
+       aes(x = factor(HouseholdSize),
+           y = AvgSpending)) +
+  geom_bar(stat = "identity",
+           fill = "brown",
+           alpha = 0.8,
+           color = "black") +
+  labs(
+    title = "Average Credit Card Spending by Household Size",
+    x = "Household Size",
+    y = "Average Credit Card Spending"
+  )
+```
+
+The chart indicates that larger households generally have higher average credit card spending. Customers from households with 5 and 6 members show the highest spending levels, while households with 7 and 8 members demonstrate lower average spending. This suggests that household size may influence customer purchasing behavior and financial activity.
+
+\-\--
+
+## **5. Data Preprocessing**
+
+The data preprocessing stage was performed to prepare the WalletUpCRM dataset for clustering analysis. During this step, missing values and duplicated records were checked, and the cleaned dataset was prepared for further analysis.
+
+The selected numerical variables were then scaled to ensure that all features contributed equally to the clustering process. This step is important because K-Means clustering is sensitive to differences in variable scale, especially when features such as income, spending, and online activity have different value ranges.
+
+```{r}
+names(data)
+```
+
+#### Feature Selection
+
+```{r}
+selected_features <- data %>%
+  select(
+    Age,
+    Income,
+    HouseholdSize,
+    CreditCardSpending,
+    MortageVolume,
+    StockVolume,
+    InternetTrafficVolume,
+    AppLogins,
+    TimeOnlineBanking
+  )
+```
+
+#### Scaling
+
+```{r}
+data_scaled <- scale(selected_features)
+```
+
+```{r}
+glimpse(data)
+```
+
+```{r}
+head(data_scaled)
+```
+
+#### Distribution of Selected Features
+
+```{r}
+selected_df <- as.data.frame(selected_features)
+
+selected_long <- selected_df %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+ggplot(selected_long,
+       aes(x = Value)) +
+  geom_histogram(
+    bins = 20,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  facet_wrap(~Variable,
+             scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Distribution of Selected Features",
+    x = "Value",
+    y = "Frequency"
+  )
+```
+
+The histograms illustrate the distribution of the selected features used in the clustering analysis. Variables such as income, mortgage volume, credit card spending, and stock investments show substantial variability among customers, indicating different financial profiles and behavioral patterns.
+
+In addition, digital activity variables such as app logins, internet traffic volume, and time spent in online banking reveal differences in customer engagement with digital banking services. These variations support the use of clustering techniques to identify meaningful customer segments.
+
+### Hyperparameter Tuning
+
+#### Finding the Optimal Number of Clusters Using the Elbow Method
+
+```{r}
+wcss <- numeric()
+
+for (k in 1:10) {
+  kmeans_model <- kmeans(
+    data_scaled,
+    centers = k,
+    nstart = 25
+  )
+  
+  wcss[k] <- kmeans_model$tot.withinss
+}
+
+wcss
+```
+
+```{r}
+elbow_data <- data.frame(
+  k = 1:10,
+  wcss = wcss
+)
+
+ggplot(elbow_data, aes(x = k, y = wcss)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Elbow Method for Optimal Number of Clusters",
+    x = "Number of Clusters (k)",
+    y = "Within-Cluster Sum of Squares"
+  )
+```
+
+The Elbow Method was used to determine the optimal number of clusters for the K-Means model. The graph shows a significant decrease in within-cluster sum of squares between 1 and 4 clusters, after which the improvement becomes more gradual. This indicates that the optimal number of clusters is likely between 4 and 5, where the model achieves a good balance between cluster separation and model complexity.
+
+#### Optimal Number of Clusters
+
+```{r}
+fviz_nbclust(
+  data_scaled,
+  kmeans,
+  method = "wss"
+)
+```
+
+\-\--
+
+## 6. K-Means Clustering Model
+
+```{r}
+num_clusters <- 3
+
+kmeans_model <- kmeans(
+  data_scaled,
+  centers = num_clusters,
+  nstart = 25
+)
+
+clusters <- as.factor(kmeans_model$cluster)
+
+table(clusters)
+```
+
+```{r}
+cluster_df <- cbind(
+  as.data.frame(data_scaled),
+  Cluster = clusters
+)
+
+colSums(is.na(cluster_df))
+```
+
+```{r}
+head(cluster_df, 3)
+```
+
+#### Cluster Distribution
+
+```{r}
+cluster_counts <- cluster_df %>%
+  count(Cluster)
+
+ggplot(cluster_counts,
+       aes(x = factor(Cluster),
+           y = n,
+           fill = factor(Cluster))) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Count of Clusters",
+    x = "Cluster",
+    y = "Count"
+  )
+```
+
+#### Cluster Value Distribution
+
+```{r}
+prop.table(table(cluster_df$Cluster)) * 100
+```
+
+```{r}
+cluster_1_df <- cluster_df %>%
+  filter(Cluster == 1)
+
+head(cluster_1_df)
+```
+
+```{r}
+cluster_2_df <- cluster_df %>%
+  filter(Cluster == 2)
+
+head(cluster_2_df)
+```
+
+```{r}
+cluster_3_df <- cluster_df %>%
+  filter(Cluster == 3)
+
+head(cluster_3_df)
+```
+
+#### Feature Distribution Across Clusters
+
+```{r}
+cluster_long <- cluster_df %>%
+  pivot_longer(
+    cols = -Cluster,
+    names_to = "Feature",
+    values_to = "Value"
+  )
+
+ggplot(cluster_long,
+       aes(x = Value, fill = factor(Cluster))) +
+  geom_histogram(
+    bins = 25,
+    alpha = 0.5,
+    position = "identity"
+  ) +
+  facet_wrap(~Feature, scales = "free", ncol = 3) +
+  theme_minimal() +
+  labs(
+    title = "Feature Distribution Across Clusters",
+    x = "Scaled Value",
+    y = "Frequency",
+    fill = "Cluster"
+  )
+```
+
+The feature distribution plots highlight clear differences between the identified customer clusters. Cluster 1 is characterized by lower income, lower investment activity, and moderate digital banking usage. Cluster 2 contains customers with higher financial activity, including larger mortgage volumes, stock investments, and higher online banking engagement. Cluster 3 represents customers with the highest income and credit card spending, but comparatively lower internet traffic and online banking activity.
+
+These distinctions indicate that the clustering model successfully identified customer groups with different financial behaviors and levels of digital engagement, providing valuable insights for targeted marketing strategies.
+
+\-\--
+
+## 7. Silhouette Analysis
+
+Silhouette Analysis was performed to evaluate the quality of the clustering results and determine the most appropriate number of clusters. The silhouette score measures how similar each observation is to its assigned cluster compared to other clusters, with values closer to 1 indicating better cluster separation.
+
+The results show that the silhouette score increases as the number of clusters grows, reaching its highest value at 7 clusters. This suggests that the clustering structure becomes more distinct and better separated with additional clusters. However, considering both interpretability and business applicability, a smaller number of clusters was selected to provide clearer and more meaningful customer segments for marketing analysis.
+
+```{r}
+library(cluster)
+
+silhouette_scores <- c()
+
+for (k in 2:8) {
+  
+  kmeans_model <- kmeans(
+    data_scaled,
+    centers = k,
+    nstart = 25
+  )
+  
+  silhouette_avg <- mean(
+    silhouette(
+      kmeans_model$cluster,
+      dist(data_scaled)
+    )[, 3]
+  )
+  
+  cat(
+    "For n_clusters =",
+    k,
+    "the average silhouette score is",
+    silhouette_avg,
+    "\n"
+  )
+  
+  silhouette_scores <- c(
+    silhouette_scores,
+    silhouette_avg
+  )
+}
+```
+
+The silhouette scores indicate that cluster quality improves as the number of clusters increases, reaching the highest value at 7 clusters (0.598). This suggests that the customer segments become more clearly separated with additional clusters.
+
+```{r}
+silhouette_df <- data.frame(
+  k = 2:8,
+  score = silhouette_scores
+)
+
+ggplot(silhouette_df,
+       aes(x = k,
+           y = score)) +
+  geom_line() +
+  geom_point(size = 3) +
+  labs(
+    title = "Silhouette Scores for Different Numbers of Clusters",
+    x = "Number of Clusters",
+    y = "Average Silhouette Score"
+  )
+```
+
+```{r}
+silhouette_scores
+```
+
+#### K-Means Cluster Visualization
+
+```{r}
+fviz_cluster(
+  kmeans_model,
+  data = data_scaled,
+  ellipse.type = "norm",
+  geom = "point",
+  palette = "jco"
+)
+```
+
+The cluster visualization demonstrates clear separation between the identified customer segments, indicating that the K-Means model successfully grouped customers with similar characteristics. Most clusters appear compact and well-defined, suggesting strong clustering performance and meaningful segmentation of customer financial and digital behavior patterns.
+
+#### Silhouette Score Visualization
+
+```{r}
+silhouette_df <- data.frame(
+  k = 2:8,
+  score = silhouette_scores
+)
+
+ggplot(silhouette_df,
+       aes(x = k,
+           y = score)) +
+  geom_line(color = "black") +
+  geom_point(size = 3,
+             color = "black") +
+  labs(
+    title = "Silhouette Score for K-Means Clustering",
+    x = "Number of Clusters (k)",
+    y = "Silhouette Score"
+  ) +
+  theme_minimal()
+```
+
+The silhouette analysis shows that clustering quality improves as the number of clusters increases from 2 to 7. The highest silhouette score is achieved at k = 7, indicating the best separation and cohesion between clusters. After 7 clusters, the score slightly decreases, suggesting that additional clusters do not improve the segmentation quality.
+
+\-\--
+
+## **8. K-Means Total Data**
+
+#### Maximum Silhouette Score
+
+```{r}
+max_score <- max(silhouette_scores)
+
+cat("Maximum Silhouette Score:", max_score)
+```
+
+#### Clustering of Income and Credit Card Spending
+
+```{r}
+best_k <- 7
+
+kmeans_final <- kmeans(
+  data_scaled,
+  centers = best_k,
+  nstart = 25
+)
+
+cluster_plot <- as.data.frame(data_scaled)
+cluster_plot$Cluster <- as.factor(kmeans_final$cluster)
+
+centers <- as.data.frame(kmeans_final$centers)
+centers$Cluster <- as.factor(1:best_k)
+
+ggplot(cluster_plot,
+       aes(x = Income,
+           y = CreditCardSpending,
+           color = Cluster)) +
+  geom_point(alpha = 0.7,
+             size = 2) +
+  geom_point(data = centers,
+             aes(x = Income,
+                 y = CreditCardSpending),
+             color = "red",
+             size = 5,
+             shape = 4,
+             stroke = 2) +
+  theme_minimal() +
+  labs(
+    title = "K-Means Clustering with 7 Clusters",
+    x = "Scaled Income",
+    y = "Scaled Credit Card Spending",
+    color = "Cluster"
+  )
+```
+
+The K-Means clustering visualization with 7 clusters demonstrates a clear separation between customer groups based on scaled income and credit card spending. Several clusters are compact and well-defined, indicating strong similarities between customers within the same segment. The red "X" markers represent the cluster centroids, which summarize the typical behavior of customers in each group. The visualization confirms that the chosen clustering solution successfully identifies distinct customer profiles suitable for targeted marketing strategies.
+
+#### Hierarchical Clustering
+
+```{r}
+distance_matrix <- dist(data_scaled)
+
+hc_model <- hclust(distance_matrix,
+                   method = "ward.D2")
+
+plot(hc_model,
+     labels = FALSE,
+     main = "Hierarchical Clustering Dendrogram")
+```
+
+The hierarchical clustering dendrogram illustrates how customer observations are grouped based on similarity. Customers that merge at lower heights are more similar, while larger vertical distances indicate greater differences between groups. The dendrogram suggests the presence of several distinct clusters, supporting the results obtained from the K-Means analysis. This method provides an additional validation of the customer segmentation structure within the dataset.
+
+#### Cluster Profiling
+
+```{r}
+cluster_summary <- aggregate(
+  . ~ Cluster,
+  data = cluster_df,
+  mean
+)
+
+cluster_summary
+```
+
+### Cluster 1
+
+Customers in Cluster 1 are characterized by lower income, lower investment activity, and limited digital banking engagement.
+
+### Cluster 2
+
+Cluster 2 contains digitally active customers with moderate income and higher online banking activity.
+
+### Cluster 3
+
+Customers in Cluster 3 demonstrate higher income levels, stronger investment behavior, and increased credit card spending.
+
+\-\--
+
+## Marketing Recommendations
+
+Based on the clustering results, Cluster 2 and Cluster 3 appear to be the most suitable targets for WalletUp's new digital fintech services.
+
+Cluster 2 customers are highly active in online banking and mobile applications, making them more likely to adopt digital financial products.
+
+Cluster 3 customers demonstrate higher income levels and stronger financial activity, indicating greater potential for premium fintech services and investment-related products.
+
+Therefore, the company should prioritize these customer segments in future digital marketing campaigns.
+
+\-\--
+
+## Conclusion
+
+This project applied exploratory data analysis and K-Means clustering techniques to identify meaningful customer segments within the WalletUpCRM dataset.
+
+The analysis included data preprocessing, missing value inspection, feature scaling, statistical exploration, and multiple visualizations in order to better understand customer financial and digital behavior.
+
+Several clustering configurations were evaluated using the Elbow Method and Silhouette Analysis. The highest silhouette score was achieved at k = 7, indicating strong cluster separation and well-defined customer groups.
+
+The clustering process revealed significant differences between customer segments in terms of income level, credit card spending, mortgage volume, investment activity, online banking usage, and mobile application engagement.
+
+The identified customer groups can support more effective marketing strategies and personalized fintech services. Customers with high digital activity and stronger financial engagement appear to be the most promising targets for WalletUp's future digital fintech campaigns.
+
+Overall, the project demonstrates how clustering methods can help financial institutions better understand customer behavior, improve segmentation strategies, and support data-driven business decision-making.
+
+\-\--
+
+## Strategic Recommendations for WalletUp
+
+#### Data-Driven Customer Targeting
+
+Use customer segmentation results to identify high-value customer groups and personalize marketing campaigns based on spending behavior, online banking activity, and investment preferences.
+
+#### Focus on Digitally Active Customers
+
+Prioritize clusters with high app logins, internet traffic usage, and online banking activity, as these customers are more likely to adopt WalletUp's fintech services.
+
+#### Personalized Marketing Campaigns
+
+Develop targeted promotions and financial offers for different customer segments to improve customer engagement and service adoption.
+
+#### Investment-Oriented Customers
+
+Customers with high stock and investment volumes represent a valuable segment for premium fintech products and advanced digital financial services.
+
+#### Improve Customer Retention
+
+Use behavioral insights from clustering to create loyalty programs and personalized financial recommendations that increase long-term customer retention.
+
+#### Expand Digital Services
+
+Encourage less digitally active customer groups to adopt online banking services through educational campaigns and simplified mobile applications.
+
+#### Continuous Data Monitoring
+
+Continuously monitor customer behavior and update segmentation models regularly to adapt marketing strategies to changing customer needs.
+
+\-\--
+
+## Use of Artificial Intelligence Tools
+
+During the development of this project, ChatGPT was used as a supportive tool for improving code structure, generating ideas for data visualization, and assisting with the interpretation of clustering results. All analytical decisions, data preprocessing, model selection, and final conclusions were reviewed and adapted independently as part of the learning process.
